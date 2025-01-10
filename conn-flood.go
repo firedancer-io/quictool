@@ -63,7 +63,7 @@ func runConnFlood(ctx context.Context, dst string) {
 	}
 	defer conn.CloseWithError(0, "")
 
-	var payload [1400]byte
+	var payload [1232]byte
 	for {
 		stream, err := conn.OpenUniStream()
 		if err != nil {
