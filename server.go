@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync/atomic"
+	"time"
 
 	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/quicvarint"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +27,8 @@ func init() {
 	rootCmd.AddCommand(&serverCmd)
 }
 
+var totalSize uint64
+
 func handleConn(ctx context.Context, conn quic.Connection) {
 	for {
 		stream, err := conn.AcceptUniStream(ctx)
@@ -31,7 +36,14 @@ func handleConn(ctx context.Context, conn quic.Connection) {
 			log.Print(err)
 			return
 		}
-		io.Copy(io.Discard, stream)
+		go func() {
+			written, err := io.Copy(io.Discard, stream)
+			if err != nil {
+				log.Print(err)
+				return
+			}
+			atomic.AddUint64(&totalSize, uint64(written))
+		}()
 	}
 }
 
@@ -39,13 +51,35 @@ func runServer(ctx context.Context, listenAddr string) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	quicConfig := &quic.Config{}
+	quicConfig := &quic.Config{
+		MaxIncomingUniStreams:      1 << 60,
+		InitialStreamReceiveWindow: 1232,
+		MaxStreamReceiveWindow:     quicvarint.Max,
+		MaxIdleTimeout:             10 * time.Second,
+	}
 
 	tlsConfig := &tls.Config{
 		Certificates:       []tls.Certificate{genSolanaCert()},
 		NextProtos:         []string{"solana-tpu"},
 		InsecureSkipVerify: true,
 	}
+
+	go func() {
+		timer := time.NewTicker(time.Second)
+		defer timer.Stop()
+		var lastRcvd uint64
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				curRcvd := atomic.LoadUint64(&totalSize)
+				diff := curRcvd - lastRcvd
+				fmt.Printf("%.3f Mbps\n", (float64(diff)*8)/1e6)
+				lastRcvd = curRcvd
+			}
+		}
+	}()
 
 	listener, err := quic.ListenAddr(listenAddr, tlsConfig, quicConfig)
 	if err != nil {
