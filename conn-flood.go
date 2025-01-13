@@ -10,6 +10,7 @@ import (
 
 	"github.com/quic-go/quic-go"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/semaphore"
 )
 
 var connFloodCmd = cobra.Command{
@@ -63,6 +64,8 @@ func runConnFlood(ctx context.Context, dst string) {
 	}
 	defer conn.CloseWithError(0, "")
 
+	sem := semaphore.NewWeighted(65536)
+
 	var payload [1232]byte
 	for {
 		stream, err := conn.OpenUniStream()
@@ -70,9 +73,17 @@ func runConnFlood(ctx context.Context, dst string) {
 			log.Printf("%#v", err)
 			return
 		}
-		stream.Write(payload[:])
-		stream.Close()
+		sem.Acquire(ctx, 1)
+		go func(stream quic.SendStream) {
+			defer sem.Release(1)
+			n, err := stream.Write(payload[:])
+			if err != nil {
+				log.Printf("%#v", err)
+				return
+			}
+			stream.Close()
 
-		atomic.AddUint64(&totalSent, uint64(len(payload)))
+			atomic.AddUint64(&totalSent, uint64(n))
+		}(stream)
 	}
 }
