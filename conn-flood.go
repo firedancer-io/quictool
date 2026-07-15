@@ -74,7 +74,7 @@ func runConnFlood(ctx context.Context, dst string) {
 			return
 		}
 		sem.Acquire(ctx, 1)
-		go func(stream quic.SendStream) {
+		go func(stream *quic.SendStream) {
 			defer sem.Release(1)
 			n, err := stream.Write(payload[:])
 			if err != nil {

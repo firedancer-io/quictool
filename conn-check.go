@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"log"
 	"os"
 
 	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/logging"
 	"github.com/quic-go/quic-go/qlog"
+	"github.com/quic-go/quic-go/qlogwriter"
 	"github.com/spf13/cobra"
 )
 
@@ -27,8 +28,15 @@ func init() {
 
 func runConnCheck(ctx context.Context, dst string) {
 	quicConfig := &quic.Config{
-		Tracer: func(ctx context.Context, p logging.Perspective, odcid quic.ConnectionID) *logging.ConnectionTracer {
-			return qlog.NewConnectionTracer(os.Stdout, p, odcid)
+		Tracer: func(_ context.Context, isClient bool, connID quic.ConnectionID) qlogwriter.Trace {
+			trace := qlogwriter.NewConnectionFileSeq(
+				nopWriteCloser{Writer: os.Stdout},
+				isClient,
+				connID,
+				[]string{qlog.EventSchema},
+			)
+			go trace.Run()
+			return trace
 		},
 	}
 
@@ -45,3 +53,9 @@ func runConnCheck(ctx context.Context, dst string) {
 	}
 	defer conn.CloseWithError(0, "")
 }
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (nopWriteCloser) Close() error { return nil }

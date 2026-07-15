@@ -29,7 +29,7 @@ func init() {
 
 var totalSize uint64
 
-func handleConn(ctx context.Context, conn quic.Connection) {
+func handleConn(ctx context.Context, conn *quic.Conn) {
 	for {
 		stream, err := conn.AcceptUniStream(ctx)
 		if err != nil {
